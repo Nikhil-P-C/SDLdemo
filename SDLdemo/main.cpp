@@ -29,7 +29,6 @@ void eventHandler(SDL_Event& event,bool& running,int* x,int* y,int* clicks) {
         // Handle other events if necessary
         break;
     }
-	
 }
 
 int main(int argc, char* argv[]) {
