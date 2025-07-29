@@ -193,7 +193,7 @@ int main(int argc, char* argv[]) {
                     if (!(serverTextInput.empty()))serverTextInput.pop_back();
 
                 }
-				else if (CurrentState == serverTEXTINPUT && inputEvent.key.keysym.sym == SDLK_ESCAPE || inputEvent.key.keysym.sym==SDLK_RETURN) {
+				else if (CurrentState == serverTEXTINPUT && (inputEvent.key.keysym.sym == SDLK_ESCAPE || inputEvent.key.keysym.sym==SDLK_RETURN)) {
 					// Stop server text input when Escape is pressed
 					CurrentState = MOVEMENT; // Switch back to movement state
 					SDL_StopTextInput(); // Stop text input
