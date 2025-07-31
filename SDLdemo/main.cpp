@@ -3,12 +3,19 @@
 #include <iostream>
 #include <string>
 #include <enet/enet.h>
+#include <vector>
 //GAMESTATES
 enum GameStates
 {
 	MOVEMENT,
 	TEXTINPUT,
 	serverTEXTINPUT
+};
+struct player {
+	std::string name;
+	std::string serverInput; // Server text input
+	int x, y; // Position of the player
+	
 };
 
 void eventHandler(SDL_Event& event,bool& running,int* x,int* y,int* clicks) {
@@ -94,7 +101,8 @@ int main(int argc, char* argv[]) {
             return EXIT_FAILURE;
         }
     }
-
+	// Wait for connection to be established
+	std::vector <player> players; // Vector to store player data
 
     // Main loop flag
     bool running = true;
@@ -256,7 +264,7 @@ int main(int argc, char* argv[]) {
 
 
 
-        // In your game loop:
+       // game loop:
 
 
 
@@ -297,7 +305,7 @@ int main(int argc, char* argv[]) {
 
         std::string displayText = textInput;
         const Uint32 blinkInterval = 500; // Blink every 500 ms
-        bool blinkState = false;
+        static bool blinkState = false;
         if (currentTime - lastBlinkTime > 500) { // Blink every 500 ms
             blinkState = !blinkState;
             lastBlinkTime = currentTime;
