@@ -11,27 +11,97 @@ enum GameStates
 	TEXTINPUT,
 	serverTEXTINPUT
 };
+//PACKET TYPES
+enum PacketType {
+	PACKET_CHAT = 1, // Chat message packet
+	PACKET_MOVE = 2, // Player movement packet
+	PACKET_DISCONNECT = 3 // Disconnect packet
+};
+struct Packet {
+	uint8_t type;// Type of the packet (e.g., text input, movement, etc.)
+	char name[32]; // Player name
+	int32_t x; // Player x position
+	int32_t y; // Player y position
+    char message[128];//messsage content
+
+};
+
 struct player {
 	std::string name;
 	std::string serverInput; // Server text input
-	int x, y; // Position of the player
+	int x =100, y=100; // Position of the player
+	bool isConnected = false; // Connection status of the player
 	
 };
-void enetEventHandler(ENetEvent *enetEvent, ENetHost* Host) {
-	 while (enet_host_service(Host, enetEvent, 0) > 0) {
-        switch (enetEvent->type) {
-        case ENET_EVENT_TYPE_CONNECT:
-            std::cout << "A new client connected from " << enetEvent->peer->address.host << ":" << enetEvent->peer->address.port << "\n";
-            break;
-        case ENET_EVENT_TYPE_RECEIVE:
-            std::cout << "A packet of length " << enetEvent->packet->dataLength << " was received from a client.\n";
-            enet_packet_destroy(enetEvent->packet); // Destroy the packet after processing
-            break;
-        case ENET_EVENT_TYPE_DISCONNECT:
-            std::cout << "A client disconnected.\n";
-            break;
-        default:
-            break;
+int availableIndex(struct player players[]) {
+	for (int i = 0; i < 4; i++) {
+		if (!players[i].isConnected && i !=1) {
+			return i; // Return the index of the first available player slot
+		}
+	}
+}
+void enetEventHandler(ENetEvent *enetEvent, ENetHost* Host,struct player players[],ENetPeer** peer,bool isHost,bool isClient) {
+    if (isHost && !isClient) {
+        while (enet_host_service(Host, enetEvent, 0) > 0) {
+            switch (enetEvent->type) {
+            case ENET_EVENT_TYPE_CONNECT:
+                std::cout << "A new client connected from " << enetEvent->peer->address.host << ":" << enetEvent->peer->address.port << "\n";
+                *peer = enetEvent->peer; // Store the peer for later use
+                break;
+            case ENET_EVENT_TYPE_RECEIVE:
+                if (enetEvent->packet->dataLength == sizeof(Packet)) {
+                    Packet pkt;
+                    memcpy(&pkt, enetEvent->packet->data, sizeof(Packet));
+
+                    if (pkt.type == PACKET_CHAT) {
+                        std::cout << pkt.name << " says: " << pkt.message << "\n";
+                    }
+                    else if (pkt.type == PACKET_MOVE) {
+                        std::cout << pkt.name << " moved to: " << pkt.x << "," << pkt.y << "\n";
+                    }
+                }
+                else {
+                    std::cerr << "Received packet of unexpected size!\n";
+                }
+                    enet_packet_destroy(enetEvent->packet);
+                    break;
+
+                case ENET_EVENT_TYPE_DISCONNECT:
+                    std::cout << "A client disconnected.\n";
+                    break;
+                default:
+                    break;
+            }
+        }
+    }
+    if (isClient && !isHost) {
+        while (enet_host_service(Host, enetEvent, 0) > 0) {
+            switch (enetEvent->type) {
+            case ENET_EVENT_TYPE_CONNECT:
+                std::cout << "Connected to server.\n";
+                break;
+            case ENET_EVENT_TYPE_RECEIVE:
+                if (enetEvent->packet->dataLength == sizeof(Packet)) {
+                    Packet pkt;
+                    memcpy(&pkt, enetEvent->packet->data, sizeof(Packet));
+                    if (pkt.type == PACKET_CHAT) {
+                        std::cout << pkt.name << " says: " << pkt.message << "\n";
+                    }
+                    else if (pkt.type == PACKET_MOVE) {
+                        std::cout << pkt.name << " moved to: " << pkt.x << "," << pkt.y << "\n";
+                    }
+                }
+                else {
+                    std::cerr << "Received packet of unexpected size!\n";
+                }
+                enet_packet_destroy(enetEvent->packet);
+                break;
+            case ENET_EVENT_TYPE_DISCONNECT:
+                std::cout << "Disconnected from server.\n";
+                break;
+            default:
+                break;
+            }
         }
     }
 }
@@ -131,9 +201,9 @@ void eventHandler(SDL_Event& event, bool& running, int* x, int* y, int* clicks, 
     if (*CurrentState == MOVEMENT) {
         const Uint8* keystate = SDL_GetKeyboardState(NULL);
         if (*x <= 0) *x = 0;
-        if (*x >= 600) *x = 600;  // 800 - rect width
+        if (*x >= 750) *x = 750;  // 800 - rect width
         if (*y <= 0) *y = 0;
-        if (*y >= 400) *y = 400;  // 600 - rect height
+        if (*y >= 550) *y = 550;  // 600 - rect height
 
         if (keystate[SDL_SCANCODE_W]) {
             *y -= 5;
@@ -150,8 +220,16 @@ void eventHandler(SDL_Event& event, bool& running, int* x, int* y, int* clicks, 
     }
 }
 
+//main function
 
 int main(int argc, char* argv[]) {
+	
+    //players
+    struct player players[4];
+    bool isHost = false;
+    bool isClient = false;
+	int localPlayerIndex = 0; // Index of the local player
+
     // Initialize SDL
     if (SDL_Init(SDL_INIT_EVERYTHING) < 0) {
         std::cerr << "SDL could not initialize! SDL_Error: " << SDL_GetError() << "\n";
@@ -181,7 +259,7 @@ int main(int argc, char* argv[]) {
     std::cout << "Enter 'h' for host (server) or 'c' for client: ";
     std::cin >> user; // Get user input for server or client mode
     if (user == 'h') {
-
+		isHost = true; // Set host mode
         server = enet_host_create(&address, 32, 2, 0, 0);
         Host = server;
         if (server == NULL) {
@@ -190,11 +268,14 @@ int main(int argc, char* argv[]) {
             SDL_Quit();
             return EXIT_FAILURE;
         }
+        localPlayerIndex = 0;
         std::cout << "ENet server created successfully.\n";
+		players[localPlayerIndex].isConnected = true; // Mark the first player as connected
     }
 
 
     if (user == 'c') {
+		isClient = true; // Set client mode
         client = enet_host_create(NULL, 1, 2, 0, 0); // local client
         enet_address_set_host(&address, "127.0.0.1"); // or public IP
         address.port = 1234;
@@ -207,9 +288,12 @@ int main(int argc, char* argv[]) {
             SDL_Quit();
             return EXIT_FAILURE;
         }
+		localPlayerIndex = availableIndex(players); // Get the index of the first available player slot
+		players[localPlayerIndex].isConnected = true; // Mark the player as connected
+		std::cout << "ENet client created successfully.\n";
     }
 	// Wait for connection to be established
-	std::vector <player> players; // Vector to store player data
+	
 
     // Main loop flag
     bool running = true;
@@ -228,6 +312,7 @@ int main(int argc, char* argv[]) {
         SDL_Quit();
         return EXIT_FAILURE;
     }
+
 
     // Create renderer
     SDL_Renderer* renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
@@ -262,42 +347,69 @@ int main(int argc, char* argv[]) {
     SDL_StartTextInput(); // Start text input mode
     //enet event handling
     ENetEvent enetEvent;
+    
 
+	
     while (running) {
 		// Handle events
-        eventHandler(inputEvent, running, &x, &y, &clicks,&CurrentState,&textInput,&serverTextInput);
-		enetEventHandler(&enetEvent, Host); // Handle ENet events
+       
+		enetEventHandler(&enetEvent, Host,players,&peer,isHost,isClient); // Handle ENet events
+        eventHandler(inputEvent, running, &players[localPlayerIndex].x, &players[localPlayerIndex].y, &clicks, &CurrentState, &textInput, &serverTextInput);
+
+        Packet pkt;
+        pkt.type = PACKET_CHAT;
+        strncpy_s(pkt.name, players[localPlayerIndex].name.c_str(), sizeof(pkt.name));
+        pkt.x = 100;
+        pkt.y = 200;
+        strncpy_s(pkt.message,players[localPlayerIndex].serverInput.c_str(), sizeof(pkt.message));
+
+        // Create a packet from the raw memory of the struct
+        ENetPacket* enetPacket = enet_packet_create(
+            &pkt, sizeof(pkt), ENET_PACKET_FLAG_RELIABLE);
+        if (peer != nullptr) {
+            enet_peer_send(peer, 0, enetPacket); // Send the packet to the server
+            
+        }
+
 
 
         //rendering
-        SDL_SetRenderDrawColor(renderer, 0, 0, 100, 255); // Blue
+		SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255); // Set the draw color to black
 
-        SDL_Rect boxrect = { x, y, 200, 200 }; // Example rectangle
-        SDL_RenderClear(renderer); // Clear the renderer with the current draw color
+        for (player& p : players) {
+			if (!p.isConnected) continue; // Skip disconnected players
+           
+			SDL_Rect playerRect = {p.x, p.y, 50, 50 }; // Example player rectangle
+			SDL_RenderClear(renderer); // Clear the renderer with the current draw color
+			
+            SDL_SetRenderDrawColor(renderer, 0, 0, 255, 255); // Blue for player
+			SDL_RenderFillRect(renderer, &playerRect); // Draw player rectangle
 
-        // Draw the rectangle
-        SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255); // Red
-        SDL_GetMouseState(&mouseX, &mouseY); // Get the current mouse position
-        if (mouseX > x && mouseX < x + 200 && mouseY > y && mouseY < y + 200) {
-            SDL_SetRenderDrawColor(renderer, 0, 255, 0, 255); // Green if mouse is over the rectangle
-        }
-        else {
-            SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255); // Red otherwise
-        }
-        SDL_RenderFillRect(renderer, &boxrect);
-		message = textInput;
-		message += ":"+serverTextInput; // Combine text input and server text input
-        //playerName
-        if (!textInput.empty() && CurrentState == MOVEMENT) {
-            SDL_Color white = { 255, 255, 255, 255 };
-            SDL_Surface* surface = TTF_RenderText_Solid(font, message.c_str(), white);
-            SDL_Texture* texture = SDL_CreateTextureFromSurface(renderer, surface);
-            SDL_Rect nameRect = { x + 100 - surface->w / 2, y - 30, surface->w, surface->h };  // center over box
+            //player input
+			
 
-            SDL_RenderCopy(renderer, texture, nullptr, &nameRect);
-            SDL_FreeSurface(surface);
-            SDL_DestroyTexture(texture);
+            p.name = textInput;
+            p.serverInput = p.name;
+            p.serverInput += ":" + serverTextInput; // Combine player name and server text input
+
+            //player name rect
+            if (!p.name.empty() && CurrentState == MOVEMENT) {
+                SDL_Color white = { 255, 255, 255, 255 }; // White color for text
+                SDL_Surface* surface = TTF_RenderText_Solid(font, p.serverInput.c_str(), white);
+                if (surface) {
+                    SDL_Texture* texture = SDL_CreateTextureFromSurface(renderer, surface);
+                    SDL_Rect nameRect = { p.x + 25 - surface->w / 2, p.y - 30, surface->w, surface->h }; // Center over player rect
+                    SDL_RenderCopy(renderer, texture, nullptr, &nameRect);
+                    SDL_FreeSurface(surface);
+                    SDL_DestroyTexture(texture);
+                }
+            }
+
         }
+
+
+
+       
 
         //textInput render
         //blink text input
@@ -358,7 +470,7 @@ int main(int argc, char* argv[]) {
         SDL_RenderPresent(renderer);
         SDL_Delay(16); // Delay to limit frame rate (approx. 60 FPS)
     }
-
+    std::cout << peer << "\n";
 
         // Cleanup
         if (peer) enet_peer_disconnect(peer, 0);
