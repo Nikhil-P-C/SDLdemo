@@ -27,6 +27,7 @@ struct Packet {
 };
 
 struct player {
+    ENetPeer* user = NULL;
 	std::string name;
 	std::string serverInput; // Server text input
 	int x =100, y=100; // Position of the player
@@ -39,20 +40,38 @@ int availableIndex(struct player players[]) {
 			return i; // Return the index of the first available player slot
 		}
 	}
+    return -1;
 }
-void enetEventHandler(ENetEvent *enetEvent, ENetHost* Host,struct player players[],ENetPeer** peer,bool isHost,bool isClient) {
+void enetEventHandler(ENetEvent *enetEvent, ENetHost* Host,struct player players[],ENetPeer** peer,bool isHost,bool isClient,int localPlayerIndex) {
+    //host event
     if (isHost && !isClient) {
         while (enet_host_service(Host, enetEvent, 0) > 0) {
             switch (enetEvent->type) {
             case ENET_EVENT_TYPE_CONNECT:
                 std::cout << "A new client connected from " << enetEvent->peer->address.host << ":" << enetEvent->peer->address.port << "\n";
+                for (int i = 0;i < 4;i++) {
+                    if (localPlayerIndex == i) continue;
+                    
+                    if (players[i].user == NULL) {
+                        players[i].user = enetEvent->peer;
+                        players[i].isConnected = true;
+                        break;
+                    }
+                }
                 *peer = enetEvent->peer; // Store the peer for later use
                 break;
             case ENET_EVENT_TYPE_RECEIVE:
                 if (enetEvent->packet->dataLength == sizeof(Packet)) {
                     Packet pkt;
                     memcpy(&pkt, enetEvent->packet->data, sizeof(Packet));
+                    for (int i = 0; i < 4; i++) {
+                        if (!(players[i].user == enetEvent->peer))continue;
 
+                        players[i].x = pkt.x;
+                        players[i].y = pkt.y;
+                        players[i].name = pkt.name;
+                        players[i].serverInput = pkt.message;
+                    }
                     if (pkt.type == PACKET_CHAT) {
                         std::cout << pkt.name << " says: " << pkt.message << "\n";
                     }
@@ -74,16 +93,36 @@ void enetEventHandler(ENetEvent *enetEvent, ENetHost* Host,struct player players
             }
         }
     }
+    //client event
     if (isClient && !isHost) {
         while (enet_host_service(Host, enetEvent, 0) > 0) {
             switch (enetEvent->type) {
             case ENET_EVENT_TYPE_CONNECT:
                 std::cout << "Connected to server.\n";
+                for (int i = 0;i < 4;i++) {
+                    if (localPlayerIndex == i) continue;
+
+                    if (players[i].user == NULL) {
+                        players[i].user = enetEvent->peer;
+                        players[i].isConnected = true;
+                        break;
+                    }
+                }
                 break;
             case ENET_EVENT_TYPE_RECEIVE:
                 if (enetEvent->packet->dataLength == sizeof(Packet)) {
                     Packet pkt;
                     memcpy(&pkt, enetEvent->packet->data, sizeof(Packet));
+
+                    for (int i = 0; i < 4; i++) {
+                        if (!(players[i].user == enetEvent->peer))continue;
+
+                        players[i].x = pkt.x;
+                        players[i].y = pkt.y;
+                        players[i].name = pkt.name;
+                        players[i].serverInput = pkt.message;
+                    }
+
                     if (pkt.type == PACKET_CHAT) {
                         std::cout << pkt.name << " says: " << pkt.message << "\n";
                     }
@@ -343,8 +382,8 @@ int main(int argc, char* argv[]) {
 	std::string serverTextInput = "";
 	std::string message = "";
     SDL_Event inputEvent;
-    GameStates CurrentState = TEXTINPUT;
-    SDL_StartTextInput(); // Start text input mode
+    GameStates CurrentState = MOVEMENT;
+     
     //enet event handling
     ENetEvent enetEvent;
     
@@ -353,34 +392,36 @@ int main(int argc, char* argv[]) {
     while (running) {
 		// Handle events
        
-		enetEventHandler(&enetEvent, Host,players,&peer,isHost,isClient); // Handle ENet events
+        enetEventHandler(&enetEvent, Host, players, &peer, isHost, isClient, localPlayerIndex); // Handle ENet events
         eventHandler(inputEvent, running, &players[localPlayerIndex].x, &players[localPlayerIndex].y, &clicks, &CurrentState, &textInput, &serverTextInput);
 
         Packet pkt;
         pkt.type = PACKET_CHAT;
         strncpy_s(pkt.name, players[localPlayerIndex].name.c_str(), sizeof(pkt.name));
-        pkt.x = 100;
-        pkt.y = 200;
+        pkt.x = players[localPlayerIndex].x;
+        pkt.y = players[localPlayerIndex].y;
         strncpy_s(pkt.message,players[localPlayerIndex].serverInput.c_str(), sizeof(pkt.message));
 
         // Create a packet from the raw memory of the struct
-        ENetPacket* enetPacket = enet_packet_create(
-            &pkt, sizeof(pkt), ENET_PACKET_FLAG_RELIABLE);
-        if (peer != nullptr) {
-            enet_peer_send(peer, 0, enetPacket); // Send the packet to the server
-            
+        ENetPacket* enetPacket = enet_packet_create(&pkt, sizeof(pkt), ENET_PACKET_FLAG_RELIABLE);
+        
+        for (int i = 0; i < 4;i++) {
+            if (i == localPlayerIndex)continue;
+
+            if (players[i].user != NULL) {
+                enet_peer_send(players[i].user, 0, enetPacket); // Send the packet to the server
+
+            }
         }
-
-
 
         //rendering
 		SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255); // Set the draw color to black
-
+        SDL_RenderClear(renderer); // Clear the renderer with the current draw color
         for (player& p : players) {
 			if (!p.isConnected) continue; // Skip disconnected players
            
 			SDL_Rect playerRect = {p.x, p.y, 50, 50 }; // Example player rectangle
-			SDL_RenderClear(renderer); // Clear the renderer with the current draw color
+			
 			
             SDL_SetRenderDrawColor(renderer, 0, 0, 255, 255); // Blue for player
 			SDL_RenderFillRect(renderer, &playerRect); // Draw player rectangle
@@ -388,9 +429,9 @@ int main(int argc, char* argv[]) {
             //player input
 			
 
-            p.name = textInput;
-            p.serverInput = p.name;
-            p.serverInput += ":" + serverTextInput; // Combine player name and server text input
+            players[localPlayerIndex].name = textInput;
+            players[localPlayerIndex].serverInput = players[localPlayerIndex].name;
+            players[localPlayerIndex].serverInput += ":" + serverTextInput; // Combine player name and server text input
 
             //player name rect
             if (!p.name.empty() && CurrentState == MOVEMENT) {
@@ -406,7 +447,7 @@ int main(int argc, char* argv[]) {
             }
 
         }
-
+     
 
 
        
@@ -469,8 +510,8 @@ int main(int argc, char* argv[]) {
         // Present the renderer
         SDL_RenderPresent(renderer);
         SDL_Delay(16); // Delay to limit frame rate (approx. 60 FPS)
+
     }
-    std::cout << peer << "\n";
 
         // Cleanup
         if (peer) enet_peer_disconnect(peer, 0);
