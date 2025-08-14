@@ -42,6 +42,20 @@ int availableIndex(struct player players[]) {
 	}
     return -1;
 }
+//broadcast
+void sentToALL(int localPlayerIndex,player players[], ENetPacket* enetPacket) {
+    for (int i = 0; i < 4;i++) {
+        if (i == localPlayerIndex)continue;
+
+        if (players[i].user != NULL) {
+            enet_peer_send(players[i].user, 0, enetPacket); // Send the packet to the server
+
+        }
+    }
+}
+
+
+//enet event
 void enetEventHandler(ENetEvent *enetEvent, ENetHost* Host,struct player players[],ENetPeer** peer,bool isHost,bool isClient,int localPlayerIndex) {
     //host event
     if (isHost && !isClient) {
@@ -66,18 +80,20 @@ void enetEventHandler(ENetEvent *enetEvent, ENetHost* Host,struct player players
                     memcpy(&pkt, enetEvent->packet->data, sizeof(Packet));
                     for (int i = 0; i < 4; i++) {
                         if (!(players[i].user == enetEvent->peer))continue;
+                        
+                        if (pkt.type == PACKET_CHAT) {
+                            players[i].name = pkt.name;
+                            players[i].serverInput = pkt.message;
+                        }
+                        else if (pkt.type == PACKET_MOVE) {
+                            players[i].x = pkt.x;
+                            players[i].y = pkt.y;
+                        }
+                        
+                        
 
-                        players[i].x = pkt.x;
-                        players[i].y = pkt.y;
-                        players[i].name = pkt.name;
-                        players[i].serverInput = pkt.message;
                     }
-                    if (pkt.type == PACKET_CHAT) {
-                        std::cout << pkt.name << " says: " << pkt.message << "\n";
-                    }
-                    else if (pkt.type == PACKET_MOVE) {
-                        std::cout << pkt.name << " moved to: " << pkt.x << "," << pkt.y << "\n";
-                    }
+                    
                 }
                 else {
                     std::cerr << "Received packet of unexpected size!\n";
@@ -116,19 +132,17 @@ void enetEventHandler(ENetEvent *enetEvent, ENetHost* Host,struct player players
 
                     for (int i = 0; i < 4; i++) {
                         if (!(players[i].user == enetEvent->peer))continue;
-
-                        players[i].x = pkt.x;
-                        players[i].y = pkt.y;
-                        players[i].name = pkt.name;
-                        players[i].serverInput = pkt.message;
+                        if (pkt.type == PACKET_CHAT) {
+                            players[i].name = pkt.name;
+                            players[i].serverInput = pkt.message;
+                        }
+                        else if (pkt.type == PACKET_MOVE) {
+                            players[i].x = pkt.x;
+                            players[i].y = pkt.y;
+                        }
                     }
 
-                    if (pkt.type == PACKET_CHAT) {
-                        std::cout << pkt.name << " says: " << pkt.message << "\n";
-                    }
-                    else if (pkt.type == PACKET_MOVE) {
-                        std::cout << pkt.name << " moved to: " << pkt.x << "," << pkt.y << "\n";
-                    }
+                    
                 }
                 else {
                     std::cerr << "Received packet of unexpected size!\n";
@@ -374,12 +388,14 @@ int main(int argc, char* argv[]) {
     Uint32 lastBlinkTime = 0;
 
     int mouseX = 0, mouseY = 0; // Variables to store mouse position
-
+    int prevX = 0, prevY =0 ;
     int x = WindowHeight / 2, y = WindowWidth / 2, clicks = 0; // Initial position of the rectangle
 
     // Input handling variables
     std::string textInput = "";
 	std::string serverTextInput = "";
+    std::string prevServerInput = "";
+    
 	std::string message = "";
     SDL_Event inputEvent;
     GameStates CurrentState = MOVEMENT;
@@ -391,29 +407,46 @@ int main(int argc, char* argv[]) {
 	
     while (running) {
 		// Handle events
-       
+        prevX = players[localPlayerIndex].x, prevY = players[localPlayerIndex].y;
+        prevServerInput = players[localPlayerIndex].serverInput;
+
+        //input handling
         enetEventHandler(&enetEvent, Host, players, &peer, isHost, isClient, localPlayerIndex); // Handle ENet events
         eventHandler(inputEvent, running, &players[localPlayerIndex].x, &players[localPlayerIndex].y, &clicks, &CurrentState, &textInput, &serverTextInput);
 
-        Packet pkt;
-        pkt.type = PACKET_CHAT;
-        strncpy_s(pkt.name, players[localPlayerIndex].name.c_str(), sizeof(pkt.name));
-        pkt.x = players[localPlayerIndex].x;
-        pkt.y = players[localPlayerIndex].y;
-        strncpy_s(pkt.message,players[localPlayerIndex].serverInput.c_str(), sizeof(pkt.message));
+        //name and message update
+        players[localPlayerIndex].serverInput = players[localPlayerIndex].name;
+        players[localPlayerIndex].serverInput += ":" + serverTextInput;// Combine player name and server text input
 
-        // Create a packet from the raw memory of the struct
-        ENetPacket* enetPacket = enet_packet_create(&pkt, sizeof(pkt), ENET_PACKET_FLAG_RELIABLE);
-        
-        for (int i = 0; i < 4;i++) {
-            if (i == localPlayerIndex)continue;
+        //caht packets update and broad cast
+        if (textInput != players[localPlayerIndex].name||prevServerInput != players[localPlayerIndex].serverInput) {
+            std::cout << "prev server text input==" << prevServerInput << std::endl;
+            std::cout << "local player server input==" << players[localPlayerIndex].serverInput<<std::endl;
+            Packet Chat_pkt = {};
+            players[localPlayerIndex].name = textInput;
+            
+            Chat_pkt.type = PACKET_CHAT;
+            strncpy_s(Chat_pkt.name, players[localPlayerIndex].name.c_str(), sizeof(Chat_pkt.name));
+            
+            strncpy_s(Chat_pkt.message, players[localPlayerIndex].serverInput.c_str(), sizeof(Chat_pkt.message));
 
-            if (players[i].user != NULL) {
-                enet_peer_send(players[i].user, 0, enetPacket); // Send the packet to the server
 
-            }
+            ENetPacket* enetPacket_chat = enet_packet_create(&Chat_pkt, sizeof(Chat_pkt), ENET_PACKET_FLAG_RELIABLE);
+            sentToALL(localPlayerIndex, players, enetPacket_chat);
         }
+        //move packet update and braodcast
+        if (players[localPlayerIndex].x != prevX || players[localPlayerIndex].y != prevY){
+            Packet Move_pkt = {};
+            Move_pkt.type = PACKET_MOVE;
+            Move_pkt.x = players[localPlayerIndex].x;
+            Move_pkt.y = players[localPlayerIndex].y;
 
+            ENetPacket* enetPacket_move = enet_packet_create(&Move_pkt, sizeof(Move_pkt), ENET_PACKET_FLAG_UNSEQUENCED);
+            sentToALL(localPlayerIndex, players, enetPacket_move);
+        }
+ 
+        
+        
         //rendering
 		SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255); // Set the draw color to black
         SDL_RenderClear(renderer); // Clear the renderer with the current draw color
@@ -429,9 +462,9 @@ int main(int argc, char* argv[]) {
             //player input
 			
 
-            players[localPlayerIndex].name = textInput;
-            players[localPlayerIndex].serverInput = players[localPlayerIndex].name;
-            players[localPlayerIndex].serverInput += ":" + serverTextInput; // Combine player name and server text input
+            
+            
+            
 
             //player name rect
             if (!p.name.empty() && CurrentState == MOVEMENT) {
