@@ -4,6 +4,7 @@
 #include <string>
 #include <enet/enet.h>
 #include <vector>
+#include <random>
 //GAMESTATES
 enum GameStates
 {
@@ -25,15 +26,99 @@ struct Packet {
     char message[128];//messsage content
 
 };
+//zombies
+struct zombie {
+    int z_id;
+    int z_HP = 100;
+    int x, y;
+    float targetRadi = 400;
+    std::string target = "";
+    float closeSpeed =4.50, farSpeed = 2.00;
+    bool isalive = false;
+    
+};
 
+//player stats
 struct player {
     ENetPeer* user = NULL;
-	std::string name;
-	std::string serverInput; // Server text input
-	int x =100, y=100; // Position of the player
-	bool isConnected = false; // Connection status of the player
-	
+    int p_HP = 100;
+    std::string name;
+    std::string serverInput; // Server text input
+    int x = 100, y =100; // Position of the player
+    bool isConnected = false; // Connection status of the player
+
 };
+std::random_device rd;
+std::mt19937 gen;
+int getRandInt(int min, int max) {
+    std::uniform_int_distribution<>dist(min, max);
+    return dist(gen);
+
+}
+float getdistance(float playerX, float zombieX, float playerY, float zombieY) {
+    float dx = playerX - zombieX;
+    float dy = playerY - zombieY;
+    return sqrtf(dx*dx + dy*dy);
+}
+void gettarget(zombie* zombie, player players[]) {
+    float min = 0;
+    int pointer = 0;
+    min = getdistance((float)players[0].x,(float)zombie->x,(float)players[0].y, (float)zombie->y);
+    for (int i = 0;i < 4;i++) {
+        float newMin = getdistance((float)players[i].x, (float)zombie->x, (float)players[i].y, (float)zombie->y);
+        if (min > newMin) {
+            pointer = i;
+            min = newMin;
+        }
+        
+    }
+    if (min < zombie->targetRadi) {
+        zombie->target = players[pointer].name;
+    }
+    else {
+        zombie->target = "";
+    }
+   
+}
+void spawnZom(zombie* zombie) {
+    if (zombie->isalive == false){
+        zombie->x = getRandInt(0, 600);
+        zombie->y = getRandInt(0, 800);
+        zombie->isalive = true;
+        std::cout << "zombie spawned at x:" << zombie->x << " ,y:" << zombie->y << std::endl;
+    }
+}
+void zomMove(zombie* zombie, player players[]) {
+    float DirX = 0;
+    float DirY = 0;
+    gettarget(zombie, players);
+    for (int i = 0; i < 4;i++) {
+        
+        
+        if (zombie->target == players[i].name  && players[i].isConnected) {
+            DirX = players[i].x - zombie->x;
+            DirY = players[i].y - zombie->y;
+            float len = sqrtf(DirX * DirX + DirY * DirY);
+            if (len > 0) {
+                DirX /= len;
+                DirY /= len;
+            }
+            if (getdistance((float)players[i].x, (float)zombie->x, (float)players[i].y, (float)zombie->y) > 200) {
+                
+                zombie->x += DirX * zombie->farSpeed;
+                zombie->y += DirY * zombie->farSpeed;
+               
+                break;
+            }
+            zombie->x += DirX * zombie->closeSpeed;
+            zombie->y += DirY * zombie->closeSpeed;
+            break;
+        }
+    }
+
+}
+
+//check available slot
 int availableIndex(struct player players[]) {
 	for (int i = 0; i < 4; i++) {
 		if (!players[i].isConnected && i !=1) {
@@ -282,7 +367,8 @@ int main(int argc, char* argv[]) {
     bool isHost = false;
     bool isClient = false;
 	int localPlayerIndex = 0; // Index of the local player
-
+    //zombies
+    struct zombie zombies[20];
     // Initialize SDL
     if (SDL_Init(SDL_INIT_EVERYTHING) < 0) {
         std::cerr << "SDL could not initialize! SDL_Error: " << SDL_GetError() << "\n";
@@ -309,8 +395,11 @@ int main(int argc, char* argv[]) {
     address.host = ENET_HOST_ANY; // Bind to any address
     address.port = 1234; // Port number for the server
     char user;
+
     std::cout << "Enter 'h' for host (server) or 'c' for client: ";
     std::cin >> user; // Get user input for server or client mode
+
+
     if (user == 'h') {
 		isHost = true; // Set host mode
         server = enet_host_create(&address, 32, 2, 0, 0);
@@ -402,10 +491,29 @@ int main(int argc, char* argv[]) {
      
     //enet event handling
     ENetEvent enetEvent;
-    
+    //fps
+    const int FPS = 60;
+    const int frameDelay = 1000 / FPS;
+    int fps = 0;
+    int frames = 0;
+    Uint32 fpslasttime = SDL_GetTicks();
 
-	
+    Uint32 lasttime = SDL_GetTicks();
     while (running) {
+        Uint32 now = SDL_GetTicks();
+        frames++;
+        if (now-fpslasttime >= 1000) {
+            fps = frames;
+            frames = 0;
+            fpslasttime = now;
+            std::cout << "fps::" << fps << std::endl;
+        }
+        //game loop begins
+        Uint32 framestart = SDL_GetTicks();
+        float deltaTime = (framestart - lasttime) /1000.0f;
+        lasttime = framestart;
+
+
 		// Handle events
         prevX = players[localPlayerIndex].x, prevY = players[localPlayerIndex].y;
         prevServerInput = players[localPlayerIndex].serverInput;
@@ -448,8 +556,16 @@ int main(int argc, char* argv[]) {
         
         
         //rendering
-		SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255); // Set the draw color to black
+        SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255); // Set the draw color to black
         SDL_RenderClear(renderer); // Clear the renderer with the current draw color
+        //zombie rendering
+        spawnZom(&zombies[0]);
+        SDL_Rect zomRect = {zombies[0].x,zombies[0].y,50,50};
+        SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255);//red for zom
+        SDL_RenderFillRect(renderer, &zomRect);
+        zomMove(&zombies[0], players);
+        //palyer rendering
+		
         for (player& p : players) {
 			if (!p.isConnected) continue; // Skip disconnected players
            
@@ -530,7 +646,7 @@ int main(int argc, char* argv[]) {
             }
         }
         //click counter
-        std::string counterText = "Clicks: " + std::to_string(clicks);
+        std::string counterText = "FPS: " + std::to_string(fps);
         SDL_Color color = { 255, 255, 255, 255 };
         SDL_Surface* surface = TTF_RenderText_Blended(font, counterText.c_str(), color);
         SDL_Texture* texture = SDL_CreateTextureFromSurface(renderer, surface);
@@ -542,7 +658,11 @@ int main(int argc, char* argv[]) {
 
         // Present the renderer
         SDL_RenderPresent(renderer);
-        SDL_Delay(16); // Delay to limit frame rate (approx. 60 FPS)
+
+        Uint32 frametime = SDL_GetTicks() - framestart;
+        if (frametime < frameDelay) {
+            SDL_Delay(frameDelay - frametime);
+        }
 
     }
 
