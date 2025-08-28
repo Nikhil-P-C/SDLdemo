@@ -31,9 +31,9 @@ struct zombie {
     int z_id;
     int z_HP = 100;
     int x, y;
-    float targetRadi = 400;
+    float targetRadi = 250;
     std::string target = "";
-    float closeSpeed =4.50, farSpeed = 2.00;
+    float closeSpeed =150.00f, farSpeed = 170.00f;
     bool isalive = false;
     
 };
@@ -44,7 +44,7 @@ struct player {
     int p_HP = 100;
     std::string name;
     std::string serverInput; // Server text input
-    int x = 100, y =100; // Position of the player
+    int x = 200, y =200; // Position of the player
     bool isConnected = false; // Connection status of the player
 
 };
@@ -65,20 +65,19 @@ void gettarget(zombie* zombie, player players[]) {
     int pointer = 0;
     min = getdistance((float)players[0].x,(float)zombie->x,(float)players[0].y, (float)zombie->y);
     for (int i = 0;i < 4;i++) {
+        if (!players[i].isConnected)continue;
         float newMin = getdistance((float)players[i].x, (float)zombie->x, (float)players[i].y, (float)zombie->y);
         if (min > newMin) {
             pointer = i;
             min = newMin;
         }
-        
     }
-    if (min < zombie->targetRadi) {
+    if (min < zombie->targetRadi ) {
         zombie->target = players[pointer].name;
     }
     else {
         zombie->target = "";
     }
-   
 }
 void spawnZom(zombie* zombie) {
     if (zombie->isalive == false){
@@ -88,7 +87,7 @@ void spawnZom(zombie* zombie) {
         std::cout << "zombie spawned at x:" << zombie->x << " ,y:" << zombie->y << std::endl;
     }
 }
-void zomMove(zombie* zombie, player players[]) {
+void zomMove(zombie* zombie, player players[],float deltaTime) {
     float DirX = 0;
     float DirY = 0;
     gettarget(zombie, players);
@@ -103,26 +102,30 @@ void zomMove(zombie* zombie, player players[]) {
                 DirX /= len;
                 DirY /= len;
             }
-            if (getdistance((float)players[i].x, (float)zombie->x, (float)players[i].y, (float)zombie->y) > 200) {
+            if (getdistance((float)players[i].x, (float)zombie->x, (float)players[i].y, (float)zombie->y) > 150) {
                 
-                zombie->x += DirX * zombie->farSpeed;
-                zombie->y += DirY * zombie->farSpeed;
+                zombie->x += DirX * zombie->farSpeed * deltaTime;
+                zombie->y += DirY * zombie->farSpeed * deltaTime;
                
                 break;
             }
-            zombie->x += DirX * zombie->closeSpeed;
-            zombie->y += DirY * zombie->closeSpeed;
+            zombie->x += DirX * zombie->closeSpeed * deltaTime;
+            zombie->y += DirY * zombie->closeSpeed * deltaTime;
             break;
         }
     }
+
+}
+void zomUpdate(Uint32 lastupdate, Uint32 currentTime) {
 
 }
 
 //check available slot
 int availableIndex(struct player players[]) {
 	for (int i = 0; i < 4; i++) {
-		if (!players[i].isConnected && i !=1) {
+		if (!players[i].isConnected ) {
 			return i; // Return the index of the first available player slot
+            break;
 		}
 	}
     return -1;
@@ -149,9 +152,10 @@ void enetEventHandler(ENetEvent *enetEvent, ENetHost* Host,struct player players
             case ENET_EVENT_TYPE_CONNECT:
                 std::cout << "A new client connected from " << enetEvent->peer->address.host << ":" << enetEvent->peer->address.port << "\n";
                 for (int i = 0;i < 4;i++) {
-                    if (localPlayerIndex == i) continue;
+                    if (i== localPlayerIndex ) continue;
                     
                     if (players[i].user == NULL) {
+                        std::cout << "player is connected" << std::endl;
                         players[i].user = enetEvent->peer;
                         players[i].isConnected = true;
                         break;
@@ -188,6 +192,14 @@ void enetEventHandler(ENetEvent *enetEvent, ENetHost* Host,struct player players
 
                 case ENET_EVENT_TYPE_DISCONNECT:
                     std::cout << "A client disconnected.\n";
+                    for (int i = 0; i < 4;i++) {
+                        if (enetEvent->peer == players[i].user) {
+                            std::cout << "player name::" << players[i].name << ".is disconneted from the server" << std::endl;
+                            players[i].isConnected = false;
+                            break;
+
+                        }
+                    }
                     break;
                 default:
                     break;
@@ -236,6 +248,13 @@ void enetEventHandler(ENetEvent *enetEvent, ENetHost* Host,struct player players
                 break;
             case ENET_EVENT_TYPE_DISCONNECT:
                 std::cout << "Disconnected from server.\n";
+                for (int i = 0; i < 4;i++) {
+                    if (enetEvent->peer == players[i].user) {
+                        std::cout << "player name::" << players[i].name << ".is disconneted from the server" << std::endl;
+                        players[i].isConnected = false;
+                        break;
+                    }
+                }
                 break;
             default:
                 break;
@@ -244,7 +263,7 @@ void enetEventHandler(ENetEvent *enetEvent, ENetHost* Host,struct player players
     }
 }
 
-void eventHandler(SDL_Event& event, bool& running, int* x, int* y, int* clicks, GameStates* CurrentState, std::string* textInput, std::string* serverTextInput) {
+void eventHandler(SDL_Event& event, bool& running, int* x, int* y, int* clicks, GameStates* CurrentState, std::string* textInput, std::string* serverTextInput,float deltaTime) {
 
 
 
@@ -336,6 +355,7 @@ void eventHandler(SDL_Event& event, bool& running, int* x, int* y, int* clicks, 
             *textInput += *event.text.text; // Append the new text input
         }
     }
+    float playerSpeed = 200.0f;
     if (*CurrentState == MOVEMENT) {
         const Uint8* keystate = SDL_GetKeyboardState(NULL);
         if (*x <= 0) *x = 0;
@@ -344,16 +364,16 @@ void eventHandler(SDL_Event& event, bool& running, int* x, int* y, int* clicks, 
         if (*y >= 550) *y = 550;  // 600 - rect height
 
         if (keystate[SDL_SCANCODE_W]) {
-            *y -= 5;
+            *y -= playerSpeed * deltaTime;
         }
         if (keystate[SDL_SCANCODE_S]) {
-            *y += 5;
+            *y += playerSpeed * deltaTime;
         }
         if (keystate[SDL_SCANCODE_A]) {
-            *x -= 5;
+            *x -= playerSpeed * deltaTime;
         }
         if (keystate[SDL_SCANCODE_D]) {
-            *x += 5;
+            *x += playerSpeed * deltaTime;
         }
     }
 }
@@ -520,7 +540,7 @@ int main(int argc, char* argv[]) {
 
         //input handling
         enetEventHandler(&enetEvent, Host, players, &peer, isHost, isClient, localPlayerIndex); // Handle ENet events
-        eventHandler(inputEvent, running, &players[localPlayerIndex].x, &players[localPlayerIndex].y, &clicks, &CurrentState, &textInput, &serverTextInput);
+        eventHandler(inputEvent, running, &players[localPlayerIndex].x, &players[localPlayerIndex].y, &clicks, &CurrentState, &textInput, &serverTextInput,deltaTime);
 
         //name and message update
         players[localPlayerIndex].serverInput = players[localPlayerIndex].name;
@@ -563,7 +583,7 @@ int main(int argc, char* argv[]) {
         SDL_Rect zomRect = {zombies[0].x,zombies[0].y,50,50};
         SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255);//red for zom
         SDL_RenderFillRect(renderer, &zomRect);
-        zomMove(&zombies[0], players);
+        zomMove(&zombies[0], players,deltaTime);
         //palyer rendering
 		
         for (player& p : players) {
