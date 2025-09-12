@@ -5,6 +5,20 @@
 #include <enet/enet.h>
 #include <vector>
 #include <random>
+#include <algorithm>
+#include <cmath>
+template <typename T> 
+//utils
+inline T myMin(T a, T b) {
+    if (a > b)return b;
+    else return a;
+}
+template <typename T>
+inline T myMax(T a, T b) {
+    if (a < b)return b;
+    else return a;
+}
+
 //GAMESTATES
 enum GameStates
 {
@@ -14,9 +28,12 @@ enum GameStates
 };
 //PACKET TYPES
 enum PacketType {
-	PACKET_CHAT = 1, // Chat message packet
-	PACKET_MOVE = 2, // Player movement packet
-	PACKET_DISCONNECT = 3 // Disconnect packet
+    PACKET_CHAT = 1, // Chat message packet
+    PACKET_MOVE = 2, // Player movement packet
+    PACKET_SHOOT = 3,
+    PACKET_STOPSHOOT = 4,
+	PACKET_DISCONNECT = 5 // Disconnect packet
+
 };
 struct Packet {
 	uint8_t type;// Type of the packet (e.g., text input, movement, etc.)
@@ -24,13 +41,18 @@ struct Packet {
 	int32_t x; // Player x position
 	int32_t y; // Player y position
     char message[128];//messsage content
+    float dirx, diry;
 
 };
 //zombies
+struct zombieState {
+    float x, y;
+    int hp;
+};
 struct zombie {
     int z_id;
     int z_HP = 100;
-    int x, y;
+    float x, y;
     float targetRadi = 250;
     std::string target = "";
     float closeSpeed =150.00f, farSpeed = 170.00f;
@@ -44,9 +66,10 @@ struct player {
     int p_HP = 100;
     std::string name;
     std::string serverInput; // Server text input
-    int x = 200, y =200; // Position of the player
+    float x = 200, y =200; // Position of the player
     bool isConnected = false; // Connection status of the player
-
+    bool isShooting = false;
+    float xdir =0, ydir =0;
 };
 std::random_device rd;
 std::mt19937 gen;
@@ -54,6 +77,75 @@ int getRandInt(int min, int max) {
     std::uniform_int_distribution<>dist(min, max);
     return dist(gen);
 
+}
+void getplayeraim(player* player, int mouseX, int mouseY,int cameraX ,int cameraY) {
+  
+    int worldMouseX = (float)mouseX + cameraX;
+    int worldMouseY =(float)mouseY + cameraY;
+    player->xdir =(float)worldMouseX-(player->x +25);
+    player->ydir =(float)worldMouseY-(player->y +25);
+    float len = sqrtf(player->xdir * player->xdir + player->ydir * player->ydir);
+    if (len > 0) {
+        player->xdir /= len;
+        player->ydir /= len;
+        int xdir = std::round(player->xdir);
+        int ydir = std::round(player->ydir);
+    }
+    else {
+        player->xdir = 0;
+        player->ydir = 0;
+    }
+    
+}
+bool raycast(float playerX, float playerY, float playerDx, float playerDy, float zomX, float zomY,float &outT) {
+    const float ESP = 1e-6f;
+    float tmin = -1e30f;
+    float tmax = 1e30f;
+
+    if (fabsf(playerDx) < ESP) {
+        if (playerX < zomX || playerX > zomX + 50) return false;
+    }
+    else {
+        float tx1 = (zomX - playerX) / playerDx;
+        float tx2 = (zomX + 50 - playerX) / playerDx;
+        if (tx1 > tx2) { float tmp = tx1; tx1 = tx2; tx2 = tmp; }
+        if (tx1 > tmin) tmin = tx1;
+        if (tx2 < tmax) tmax = tx2;
+    }
+    if (fabsf(playerDy) < ESP) {
+        if (playerY < zomY || playerY > zomY + 50) return false;
+    }
+    else {
+        float ty1 = (zomY - playerY) / playerDy;
+        float ty2 = (zomY + 50 - playerY) / playerDy;
+        if (ty1 > ty2) { float tmp = ty1; ty1 = ty2; ty2 = tmp; }
+        if (ty1 > tmin) tmin = ty1;
+        if (ty2 < tmax) tmax = ty2;
+    }
+    if (tmax >= tmin && tmax >= 0.0f) {
+        outT = (tmin >= 0.0f) ? tmin : tmax;
+        return true;
+    }
+    return false;
+}
+
+  
+    
+    
+
+void checkplayerShots(player players[], zombie zombies[]) {
+    float outT = 0.00f;
+    for (int i = 0; i < 4; i++) {
+        if (!players[i].isShooting)continue;
+        std::cout << "player name :: " << players[i].name << " is shooting" << std::endl;
+        for (int j = 0; j < 20; j++) {
+            if (raycast(players[i].x+25, players[i].y+25, players[i].xdir, players[i].ydir, zombies[j].x, zombies[j].y,outT)) {
+                zombies[j].z_HP -= 5;
+                
+                break;
+            }
+        }
+    }
 }
 float getdistance(float playerX, float zombieX, float playerY, float zombieY) {
     float dx = playerX - zombieX;
@@ -141,10 +233,20 @@ void sentToALL(int localPlayerIndex,player players[], ENetPacket* enetPacket) {
         }
     }
 }
-
+void broadcastZombies(zombie zombies[], int zombieCount, int localPlayerIndex, player players[]) {
+    size_t dataSize = sizeof(zombieState) * zombieCount;
+    zombieState buffer[20];
+    for (int i = 0;i < zombieCount;i++) {
+        buffer[i].x = zombies[i].x;
+        buffer[i].y = zombies[i].y;
+        buffer[i].hp = zombies[i].z_HP;
+    }
+    ENetPacket* packet = enet_packet_create(buffer, dataSize, ENET_PACKET_FLAG_RELIABLE);
+    sentToALL(localPlayerIndex, players, packet);
+}
 
 //enet event
-void enetEventHandler(ENetEvent *enetEvent, ENetHost* Host,struct player players[],ENetPeer** peer,bool isHost,bool isClient,int localPlayerIndex) {
+void enetEventHandler(ENetEvent *enetEvent, ENetHost* Host,zombie zombies[], struct player players[], ENetPeer** peer, bool isHost, bool isClient, int localPlayerIndex) {
     //host event
     if (isHost && !isClient) {
         while (enet_host_service(Host, enetEvent, 0) > 0) {
@@ -177,9 +279,17 @@ void enetEventHandler(ENetEvent *enetEvent, ENetHost* Host,struct player players
                         else if (pkt.type == PACKET_MOVE) {
                             players[i].x = pkt.x;
                             players[i].y = pkt.y;
+                            players[i].xdir = pkt.dirx;
+                            players[i].ydir = pkt.diry;
                         }
-                        
-                        
+                        else if (pkt.type == PACKET_SHOOT) {
+                            players[i].xdir = pkt.dirx;
+                            players[i].ydir = pkt.diry;
+                            players[i].isShooting = true;
+                        }
+                        else if (pkt.type == PACKET_STOPSHOOT) {
+                            players[i].isShooting = false;
+                        }
 
                     }
                     
@@ -236,10 +346,27 @@ void enetEventHandler(ENetEvent *enetEvent, ENetHost* Host,struct player players
                         else if (pkt.type == PACKET_MOVE) {
                             players[i].x = pkt.x;
                             players[i].y = pkt.y;
+                            players[i].xdir = pkt.dirx;
+                            players[i].ydir = pkt.diry;
                         }
+                        else if (pkt.type == PACKET_SHOOT) {
+                            players[i].xdir = pkt.dirx;
+                            players[i].ydir = pkt.diry;
+                            players[i].isShooting = true;
+                        }
+                        else if (pkt.type == PACKET_STOPSHOOT) {
+                            players[i].isShooting = false;
+                        }
+                    }  
+                }
+                else if (enetEvent->packet->dataLength == sizeof(zombieState)*20) {
+                    zombieState pkt[20];
+                    memcpy(&pkt, enetEvent->packet->data, sizeof(zombieState)*20);
+                    for (int i = 0; i < 20; i++) {
+                        zombies[i].x = pkt->x;
+                        zombies[i].y = pkt->y;
+                        zombies[i].z_HP=pkt->hp;
                     }
-
-                    
                 }
                 else {
                     std::cerr << "Received packet of unexpected size!\n";
@@ -263,7 +390,7 @@ void enetEventHandler(ENetEvent *enetEvent, ENetHost* Host,struct player players
     }
 }
 
-void eventHandler(SDL_Event& event, bool& running, int* x, int* y, int* clicks, GameStates* CurrentState, std::string* textInput, std::string* serverTextInput,float deltaTime) {
+void eventHandler(SDL_Event& event, bool& running, float* x, float* y, int* clicks, GameStates* CurrentState, std::string* textInput, std::string* serverTextInput,float deltaTime ,player *localplayer,SDL_Rect *camera,bool* mouseButtonPressed) {
 
 
 
@@ -275,7 +402,12 @@ void eventHandler(SDL_Event& event, bool& running, int* x, int* y, int* clicks, 
             break;
         case SDL_KEYDOWN:std::cerr << "key down" << SDL_GetKeyName(event.key.keysym.sym) << "\n";
             break;
+        case SDL_MOUSEMOTION:
+            getplayeraim(localplayer, event.motion.x, event.motion.y,camera->x,camera->y);
+            break;
         case  SDL_MOUSEBUTTONDOWN:
+            *mouseButtonPressed = true;
+            localplayer->isShooting = true;
             std::cerr << "Mouse button down event received at (" << event.button.x << ", " << event.button.y << ")\n";
             if (event.button.y > 600 || event.button.x > 800)std::cerr << "garbage click\n";
             if ((event.button.x > *x && event.button.x < *x + 200) && (event.button.y >= *y && event.button.y <= *y + 200)) {
@@ -287,6 +419,10 @@ void eventHandler(SDL_Event& event, bool& running, int* x, int* y, int* clicks, 
             }
 
             break;
+        case SDL_MOUSEBUTTONUP:
+            *mouseButtonPressed = false;
+            localplayer->isShooting = false;
+            std::cout << "player stopped shooting" << std::endl;
         default:
             // Handle other events if necessary
             break;
@@ -356,13 +492,10 @@ void eventHandler(SDL_Event& event, bool& running, int* x, int* y, int* clicks, 
         }
     }
     float playerSpeed = 200.0f;
+    
     if (*CurrentState == MOVEMENT) {
         const Uint8* keystate = SDL_GetKeyboardState(NULL);
-        if (*x <= 0) *x = 0;
-        if (*x >= 750) *x = 750;  // 800 - rect width
-        if (*y <= 0) *y = 0;
-        if (*y >= 550) *y = 550;  // 600 - rect height
-
+        
         if (keystate[SDL_SCANCODE_W]) {
             *y -= playerSpeed * deltaTime;
         }
@@ -381,7 +514,9 @@ void eventHandler(SDL_Event& event, bool& running, int* x, int* y, int* clicks, 
 //main function
 
 int main(int argc, char* argv[]) {
-	
+	//util input
+    bool PrevmouseButtonPressed = false;
+    bool mouseButtonPressed = false;
     //players
     struct player players[4];
     bool isHost = false;
@@ -389,6 +524,7 @@ int main(int argc, char* argv[]) {
 	int localPlayerIndex = 0; // Index of the local player
     //zombies
     struct zombie zombies[20];
+    int zombieCount = sizeof(zombies) / sizeof(zombies[0]);
     // Initialize SDL
     if (SDL_Init(SDL_INIT_EVERYTHING) < 0) {
         std::cerr << "SDL could not initialize! SDL_Error: " << SDL_GetError() << "\n";
@@ -468,7 +604,7 @@ int main(int argc, char* argv[]) {
         WindowWidth, WindowHeight,
         SDL_WINDOW_SHOWN
     );
-
+    SDL_Rect camera = { 0 , 0 , WindowWidth , WindowHeight };
     if (!window) {
         std::cerr << "Window could not be created! SDL_Error: " << SDL_GetError() << "\n";
         SDL_Quit();
@@ -496,7 +632,6 @@ int main(int argc, char* argv[]) {
     //for the blink cursor
     Uint32 lastBlinkTime = 0;
 
-    int mouseX = 0, mouseY = 0; // Variables to store mouse position
     int prevX = 0, prevY =0 ;
     int x = WindowHeight / 2, y = WindowWidth / 2, clicks = 0; // Initial position of the rectangle
 
@@ -522,7 +657,7 @@ int main(int argc, char* argv[]) {
     while (running) {
         Uint32 now = SDL_GetTicks();
         frames++;
-        if (now-fpslasttime >= 1000) {
+        if (now - fpslasttime >= 1000) {
             fps = frames;
             frames = 0;
             fpslasttime = now;
@@ -530,32 +665,43 @@ int main(int argc, char* argv[]) {
         }
         //game loop begins
         Uint32 framestart = SDL_GetTicks();
-        float deltaTime = (framestart - lasttime) /1000.0f;
+        float deltaTime = (framestart - lasttime) / 1000.0f;
         lasttime = framestart;
 
 
-		// Handle events
+        // Handle events
         prevX = players[localPlayerIndex].x, prevY = players[localPlayerIndex].y;
         prevServerInput = players[localPlayerIndex].serverInput;
 
         //input handling
-        enetEventHandler(&enetEvent, Host, players, &peer, isHost, isClient, localPlayerIndex); // Handle ENet events
-        eventHandler(inputEvent, running, &players[localPlayerIndex].x, &players[localPlayerIndex].y, &clicks, &CurrentState, &textInput, &serverTextInput,deltaTime);
+        enetEventHandler(&enetEvent, Host, zombies, players, &peer, isHost, isClient, localPlayerIndex); // Handle ENet events
+        eventHandler(inputEvent, running, & players[localPlayerIndex].x, &players[localPlayerIndex].y, &clicks, &CurrentState, &textInput, &serverTextInput, deltaTime, &players[localPlayerIndex], &camera,&mouseButtonPressed);
+        //update camera
+
+
+        // where the camera should be if locked
+        float targetX = players[localPlayerIndex].x + 25 - WindowWidth / 2;
+        float targetY = players[localPlayerIndex].y + 25 - WindowHeight / 2;
+
+        // interpolate towards target
+        float factor = 0.1f;  // try values between 0.05f and 0.2f
+        camera.x += (targetX - camera.x) * factor;
+        camera.y += (targetY - camera.y) * factor;
 
         //name and message update
         players[localPlayerIndex].serverInput = players[localPlayerIndex].name;
         players[localPlayerIndex].serverInput += ":" + serverTextInput;// Combine player name and server text input
 
         //caht packets update and broad cast
-        if (textInput != players[localPlayerIndex].name||prevServerInput != players[localPlayerIndex].serverInput) {
+        if (textInput != players[localPlayerIndex].name || prevServerInput != players[localPlayerIndex].serverInput) {
             std::cout << "prev server text input==" << prevServerInput << std::endl;
-            std::cout << "local player server input==" << players[localPlayerIndex].serverInput<<std::endl;
+            std::cout << "local player server input==" << players[localPlayerIndex].serverInput << std::endl;
             Packet Chat_pkt = {};
             players[localPlayerIndex].name = textInput;
-            
+
             Chat_pkt.type = PACKET_CHAT;
             strncpy_s(Chat_pkt.name, players[localPlayerIndex].name.c_str(), sizeof(Chat_pkt.name));
-            
+
             strncpy_s(Chat_pkt.message, players[localPlayerIndex].serverInput.c_str(), sizeof(Chat_pkt.message));
 
 
@@ -563,52 +709,77 @@ int main(int argc, char* argv[]) {
             sentToALL(localPlayerIndex, players, enetPacket_chat);
         }
         //move packet update and braodcast
-        if (players[localPlayerIndex].x != prevX || players[localPlayerIndex].y != prevY){
+        if (players[localPlayerIndex].x != prevX || players[localPlayerIndex].y != prevY) {
             Packet Move_pkt = {};
             Move_pkt.type = PACKET_MOVE;
             Move_pkt.x = players[localPlayerIndex].x;
             Move_pkt.y = players[localPlayerIndex].y;
-
+            Move_pkt.dirx = players[localPlayerIndex].xdir;
+            Move_pkt.diry = players[localPlayerIndex].ydir;
             ENetPacket* enetPacket_move = enet_packet_create(&Move_pkt, sizeof(Move_pkt), ENET_PACKET_FLAG_UNSEQUENCED);
             sentToALL(localPlayerIndex, players, enetPacket_move);
         }
- 
+        //shoot packets
+        if (PrevmouseButtonPressed != mouseButtonPressed){
+            PrevmouseButtonPressed = mouseButtonPressed;
+            if (mouseButtonPressed && players[localPlayerIndex].isShooting) {
+                Packet shooting_pkt = {};
+                shooting_pkt.type = PACKET_SHOOT;
+                shooting_pkt.dirx = players[localPlayerIndex].xdir;
+                shooting_pkt.diry = players[localPlayerIndex].ydir;
+                ENetPacket* enetPacket_shoot = enet_packet_create(&shooting_pkt, sizeof(shooting_pkt),ENET_PACKET_FLAG_RELIABLE);
+                sentToALL(localPlayerIndex, players, enetPacket_shoot);
+            }
+            else if (!mouseButtonPressed || !players[localPlayerIndex].isShooting) {
+                Packet shooting_pkt = {};
+                shooting_pkt.type = PACKET_STOPSHOOT;
+                ENetPacket* enetPacket_shoot = enet_packet_create(&shooting_pkt, sizeof(shooting_pkt), ENET_PACKET_FLAG_RELIABLE);
+                sentToALL(localPlayerIndex, players, enetPacket_shoot);
+                std::cout << "shooting stop packet sent" << std::endl;
+            }
+            PrevmouseButtonPressed = mouseButtonPressed;
+        }
+        //zombies packet
+        if (user == 'h') {
+            broadcastZombies(zombies,zombieCount,localPlayerIndex,players );
+        }
         
         
+        checkplayerShots(players, zombies);
         //rendering
         SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255); // Set the draw color to black
         SDL_RenderClear(renderer); // Clear the renderer with the current draw color
         //zombie rendering
         spawnZom(&zombies[0]);
-        SDL_Rect zomRect = {zombies[0].x,zombies[0].y,50,50};
+        SDL_Rect zomRect = { (int)zombies[0].x - camera.x,(int)zombies[0].y - camera.y,50,50 };
         SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255);//red for zom
         SDL_RenderFillRect(renderer, &zomRect);
-        zomMove(&zombies[0], players,deltaTime);
+        zomMove(&zombies[0], players, deltaTime);
         //palyer rendering
-		
-        for (player& p : players) {
-			if (!p.isConnected) continue; // Skip disconnected players
-           
-			SDL_Rect playerRect = {p.x, p.y, 50, 50 }; // Example player rectangle
-			
-			
+
+        for (int i = 0; i < 4; i++) {
+            if (!players[i].isConnected) continue; // Skip disconnected players
+            SDL_Rect playerRect;
+
+            playerRect = { (int)players[i].x - camera.x,(int)players[i].y - camera.y,50,50 };
+
             SDL_SetRenderDrawColor(renderer, 0, 0, 255, 255); // Blue for player
-			SDL_RenderFillRect(renderer, &playerRect); // Draw player rectangle
+            SDL_RenderFillRect(renderer, &playerRect); // Draw player rectangle
 
-            //player input
-			
 
-            
-            
-            
+
+
+
+
+
 
             //player name rect
-            if (!p.name.empty() && CurrentState == MOVEMENT) {
+            if (!players[i].name.empty() && CurrentState == MOVEMENT) {
                 SDL_Color white = { 255, 255, 255, 255 }; // White color for text
-                SDL_Surface* surface = TTF_RenderText_Solid(font, p.serverInput.c_str(), white);
+                SDL_Surface* surface = TTF_RenderText_Solid(font, players[i].serverInput.c_str(), white);
                 if (surface) {
                     SDL_Texture* texture = SDL_CreateTextureFromSurface(renderer, surface);
-                    SDL_Rect nameRect = { p.x + 25 - surface->w / 2, p.y - 30, surface->w, surface->h }; // Center over player rect
+                    SDL_Rect nameRect = { players[i].x - camera.x + 25 - surface->w / 2, players[i].y - camera.y - 30, surface->w, surface->h }; // Center over player rect
                     SDL_RenderCopy(renderer, texture, nullptr, &nameRect);
                     SDL_FreeSurface(surface);
                     SDL_DestroyTexture(texture);
@@ -616,11 +787,22 @@ int main(int argc, char* argv[]) {
             }
 
         }
-     
 
 
-       
 
+        //aim
+        for (int i = 0; i < 4; i++) {
+            float startX = players[i].x - camera.x + 25;
+            float startY = players[i].y - camera.y + 25;
+            float endX = startX + players[i].xdir * 100;
+            float endY = startY + players[i].ydir * 100;
+            SDL_RenderDrawLine(renderer, (int)startX, (int)startY, (int)endX, (int)endY);
+        }
+        float startX = players[localPlayerIndex].x - camera.x + 25 ;
+        float startY = players[localPlayerIndex].y - camera.y + 25;
+        float endX =startX +players[localPlayerIndex].xdir * 100;
+        float endY =startY +players[localPlayerIndex].ydir * 100;
+        SDL_RenderDrawLine(renderer, (int)startX, (int)startY, (int)endX, (int)endY);
         //textInput render
         //blink text input
         Uint32 currentTime = SDL_GetTicks();
@@ -665,8 +847,9 @@ int main(int argc, char* argv[]) {
                 SDL_FreeSurface(textSurface);
             }
         }
+        
         //click counter
-        std::string counterText = "FPS: " + std::to_string(fps);
+        std::string counterText = "zombie health:: " + std::to_string(zombies[0].z_HP);
         SDL_Color color = { 255, 255, 255, 255 };
         SDL_Surface* surface = TTF_RenderText_Blended(font, counterText.c_str(), color);
         SDL_Texture* texture = SDL_CreateTextureFromSurface(renderer, surface);
