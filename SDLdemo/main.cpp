@@ -890,8 +890,6 @@ int main(int argc, char* argv[]) {
                 SDL_Rect zomRect = { (int)zombies[i].x - camera.x,(int)zombies[i].y - camera.y,50,50 };
                 SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255);//red for zom
                 SDL_RenderFillRect(renderer, &zomRect);
-
-
                
                 SDL_Color white = { 255, 255, 255, 255 }; // White color for text
                 SDL_Surface* surface = TTF_RenderText_Solid(font, ("health:"+std::to_string(zombies[i].z_HP)).c_str(), white);
