@@ -1,25 +1,67 @@
-This a application to demonstrate the working of SDL2 library to create GUI application in c++<br>
-edit:<br>
-on 13 - 08 -2025
-this project now uses enet and sdl<br> 
-the project is renamed to network lobby<br>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Network Lobby</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            margin: 20px;
+            background-color: #f9f9f9;
+            color: #333;
+        }
+        h1, h2, h3 {
+            color: #2c3e50;
+        }
+        ul {
+            margin-left: 20px;
+        }
+        code {
+            background-color: #eee;
+            padding: 2px 6px;
+            border-radius: 4px;
+        }
+        .note {
+            background-color: #fffae6;
+            padding: 10px;
+            border-left: 4px solid #ffc107;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
 
+    <h1>Network Lobby</h1>
 
-<h>HOW TO BUILD</h>
+    <p><strong>Network Lobby</strong> is a C++ application demonstrating the use of <strong>SDL2</strong> and <strong>ENet</strong> for creating a GUI-based interactive lobby.</p>
 
-currently this repository is platform dependent you can only clone it on visual studio
- * step 1 : copy clone url
- * step 2 : go to visual studio and click on clone a repository
- * step 3 : paste url, now the solution project will open, and now you can run and play
-<br>
-I might scale this project and add cmake or premake whichever suit the need
+    <h3>Update</h3>
+    <p>On 13-08-2025, the project was updated to integrate ENet for networking and renamed <strong>Network Lobby</strong>.</p>
 
+    <h2>Features</h2>
+    <ul>
+        <li>Interactive chat lobby</li>
+        <li>Game-like lobby environment</li>
+        <li>Integrated mini-games</li>
+        <li>Music playback</li>
+        <li>Real-time chat interface</li>
+    </ul>
 
+    <h2>Build Instructions</h2>
+    <div class="note">
+        <strong>Note:</strong> The project is currently platform-dependent and can only be built with <strong>Visual Studio</strong>.
+    </div>
+    <ol>
+        <li>Copy the repository clone URL.</li>
+        <li>Open Visual Studio and select <strong>Clone a Repository</strong>.</li>
+        <li>Paste the URL and open the solution project.</li>
+        <li>Build and run the application to explore the lobby features.</li>
+    </ol>
 
-objectives-<br>
-  * to create a chat lobby
-  * a game like interactive lobby
-  * which includes-<br>
-      -games<br>
-      -musics<br>
-      -and a chat interface<br>
+    <h2>Future Plans</h2>
+    <p>Future updates may include <strong>CMake</strong> or <strong>Premake</strong> support for cross-platform compatibility.</p>
+
+</body>
+</html>
