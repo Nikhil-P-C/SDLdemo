@@ -11,6 +11,7 @@ currently this repository is platform dependent you can only clone it on visual 
  * step 1 : copy clone url
  * step 2 : go to visual studio and click on clone a repository
  * step 3 : paste url, now the solution project will open, and now you can run and play
+<br>
 I might scale this project and add cmake or premake whichever suit the need
 
 
