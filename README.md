@@ -44,4 +44,4 @@
 
 * More interactive games inside the lobby
 
-Enhanced GUI with better usability
+* Enhanced GUI with better usability
