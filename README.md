@@ -18,7 +18,7 @@
 
 🛠️ Build Instructions
 
- Note: Currently, the project is platform-dependent and works only on Visual Studio.
+ Note: Currently, the project is platform-dependent and works only on Visual Studio. on visual studio not on visual studio code
 
 * Copy the repository clone URL.
 
