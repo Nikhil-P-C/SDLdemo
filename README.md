@@ -12,8 +12,6 @@
 
 * 🎵 Integrated music playback
 
-* 🕹️ Mini-games
-
 * ✨ Modern and responsive GUI
 
 🛠️ Build Instructions
