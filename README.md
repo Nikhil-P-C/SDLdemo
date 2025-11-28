@@ -1,20 +1,14 @@
-🚀 Network Lobby
+Network Lobby
 
 * Network Lobby is a C++ GUI application demonstrating SDL2 and ENet for creating an interactive networked lobby.
 
 * Update: On 13-08-2025, the project was updated to integrate ENet and renamed Network Lobby.
 
-🎯 Features
+Features
 
-* 💬 Real-time chat lobby
+* Real-time chat lobby
 
-* 🎮 Game-like interactive lobby
-
-* 🎵 Integrated music playback
-
-* ✨ Modern and responsive GUI
-
-🛠️ Build Instructions
+Build Instructions
 
  Note: Currently, the project is platform-dependent and works only on Visual Studio. on visual studio not on visual studio code
 
@@ -28,7 +22,7 @@
 
  Future updates may include CMake or Premake support for cross-platform compatibility.
 
-📝 Objectives
+Objectives
 
 * Create a fully functional chat lobby
 
@@ -36,10 +30,8 @@
 
 * Integrate mini-games, music, and real-time communication
 
-🔮 Future Plans
+uture Plans
 
 * Cross-platform support via CMake or Premake
-
-* More interactive games inside the lobby
 
 * Enhanced GUI with better usability
